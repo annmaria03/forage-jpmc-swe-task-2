@@ -14,8 +14,8 @@ interface IProps {
  * Perspective library adds load to HTMLElement prototype.
  * This interface acts as a wrapper for Typescript compiler.
  */
-interface PerspectiveViewerElement {
-  load: (table: Table) => void,
+interface PerspectiveViewerElement extends HTMLElement {
+  load: (table: Table) => void;
 }
 
 /**
@@ -27,12 +27,23 @@ class Graph extends Component<IProps, {}> {
   table: Table | undefined;
 
   render() {
-    return React.createElement('perspective-viewer');
+    return React.createElement('perspective-viewer', {
+      'view': 'y_line',
+      'column-pivots': JSON.stringify(["stock"]),
+      'row-pivots': JSON.stringify(["timestamp"]),
+      'columns': JSON.stringify(["top_ask_price"]),
+      'aggregates': JSON.stringify({
+        stock: 'distinct count',
+        top_ask_price: 'avg',
+        top_bid_price: 'avg',
+        timestamp: 'distinct count'
+      })
+    });
   }
 
   componentDidMount() {
     // Get element to attach the table from the DOM.
-    const elem: PerspectiveViewerElement = document.getElementsByTagName('perspective-viewer')[0] as unknown as PerspectiveViewerElement;
+    const elem: PerspectiveViewerElement = document.getElementsByTagName('perspective-viewer')[0] as PerspectiveViewerElement;
 
     const schema = {
       stock: 'string',
@@ -46,26 +57,37 @@ class Graph extends Component<IProps, {}> {
     }
     if (this.table) {
       // Load the `table` in the `<perspective-viewer>` DOM reference.
-
-      // Add more Perspective configurations here.
       elem.load(this.table);
     }
   }
 
   componentDidUpdate() {
-    // Everytime the data props is updated, insert the data into Perspective table
+    // Every time the data props is updated, insert the data into Perspective table
     if (this.table) {
-      // As part of the task, you need to fix the way we update the data props to
-      // avoid inserting duplicated entries into Perspective table again.
-      this.table.update(this.props.data.map((el: any) => {
-        // Format the data from ServerRespond to the schema
-        return {
-          stock: el.stock,
-          top_ask_price: el.top_ask && el.top_ask.price || 0,
-          top_bid_price: el.top_bid && el.top_bid.price || 0,
-          timestamp: el.timestamp,
-        };
-      }));
+      // Aggregate and remove duplicate data
+      const uniqueData = new Map<string, any>();
+
+      this.props.data.forEach((el: any) => {
+        const key = `${el.stock}-${el.timestamp}`;
+        if (!uniqueData.has(key)) {
+          uniqueData.set(key, {
+            stock: el.stock,
+            top_ask_price: (el.top_ask && el.top_ask.price) || 0,
+            top_bid_price: (el.top_bid && el.top_bid.price) || 0,
+            timestamp: el.timestamp,
+          });
+        } else {
+          const existing = uniqueData.get(key);
+          uniqueData.set(key, {
+            stock: existing.stock,
+            top_ask_price: (existing.top_ask_price + ((el.top_ask && el.top_ask.price) || 0)) / 2,
+            top_bid_price: (existing.top_bid_price + ((el.top_bid && el.top_bid.price) || 0)) / 2,
+            timestamp: el.timestamp,
+          });
+        }
+      });
+
+      this.table.update(Array.from(uniqueData.values()));
     }
   }
 }
